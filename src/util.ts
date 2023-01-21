@@ -1,6 +1,12 @@
 import * as fs from "fs";
 import {login, verifyToken} from "./api";
 import * as yidm from "@kohaku/yidm-v3";
+import axios, {AxiosResponse} from "axios";
+import * as path from "path";
+import {promisify} from "util";
+import * as stream from "stream";
+import * as async from "async";
+import {asyncify} from "async";
 
 export const configEnv = () => require('dotenv').config();
 
@@ -43,6 +49,12 @@ export const unsafeLoadTokenCache = () =>
     fs.existsSync(tokenCachePath) ?
         JSON.parse(fs.readFileSync(tokenCachePath).toString()) as object : {}
 
+export const loadJSON = (path: string) =>
+    JSON.parse(fs.readFileSync(path).toString()) as object;
+
+export const saveJSON = (path: string, data: object, pretty = false) =>
+    fs.writeFileSync(path, JSON.stringify(data, null, pretty ? '\t' : undefined));
+
 export const verifyAllStoredToken = async (cache: object) => {
     let table = {}
     for (const uname in cache) {
@@ -63,7 +75,7 @@ export const verifyAllStoredToken = async (cache: object) => {
     return table;
 }
 
-export const initialize = async () => {
+export const initializeTokenCache = async () => {
     const [ids] = getEnv();
     let cache = unsafeLoadTokenCache();
     let table = await verifyAllStoredToken(cache);
@@ -89,4 +101,85 @@ export const userTableToArray = table => {
     for (const uname in table)
         array.push(table[uname] as CachedUser);
     return array;
+}
+
+export const volumeEpubName = (
+    aid: string, vid: string, dir?: string
+) => path.join(dir ?? '', `${aid}_${vid}.epub`);
+
+const streamFinished = promisify(stream.finished);
+
+export const axiosDownloadFile = async (
+    axiosStream: Promise<AxiosResponse<any, any>>,
+    path: string,
+    onRejected?: (reason: any) => (void | PromiseLike<void>)
+) => {
+    const io = fs.createWriteStream(path)
+    return axiosStream.then(res => {
+        res.data.pipe(io);
+        return streamFinished(io);
+    }).catch(onRejected);
+}
+
+export const getAllImageURL = (bookList: any[]) => {
+    let list = [], cnt = 0;
+    for (const ii of bookList) {
+        const base = ii.cover;
+        if (path.extname(base) !== '')
+            list.push(base as string);
+        if (!!ii.size) {
+            for (const key in ii.size)
+                list.push(base + ii.size[key]);
+            if (++cnt % 256 === 0)
+                console.log(`Processed ${cnt} book(s) cover URL.`);
+        }
+    }
+    console.log(`Processed ${cnt} book(s) cover URL at all.`);
+    return list;
+}
+
+export const downloadStream = (url: string) => {
+    return axios.get(url, {
+        responseType: 'stream'
+    })
+}
+
+export const getAllDownloadTask = (rawBookInfo: any[])
+    : Array<{aid: number, vid: number}> =>
+    rawBookInfo.reduce((ret: Array<{aid: number, vid: number}>, ii) => {
+        if (typeof ii?.volumes !== 'object') return ret;
+        // Some volumes are not arrays, but number-indexed object (contains -1).
+        // ret.push(...<Array<any>>(ii.volumes).map(iii => ({
+        //     aid: parseInt(ii.aid), vid: parseInt(iii.vid)
+        // })));
+        for (const key in ii.volumes) {
+            const iii = ii.volumes[key];
+            ret.push({ aid: parseInt(ii.aid), vid: parseInt(iii.vid) });
+        }
+        return ret;
+    }, [] as Array<{aid: number, vid: number}>);
+
+export type DownloadTask = {aid: number, vid: number};
+
+export const loadTaskFromLog = (path = 'tmp/input.log') => {
+    const downloadTasks = fs.readFileSync(path).toString().split('\n').map(
+        line => {
+            const splits = line.split(' ');
+            return {aid: parseInt(splits[2]), vid: parseInt(splits[4])};
+        }
+    );
+    saveJSON('tmp/downTasks.json', downloadTasks);
+    saveJSON('tmp/downTasks.pretty.json', downloadTasks, true);
+    return downloadTasks;
+}
+
+export const downloadImage = (images: string[]) => {
+    return async.forEachLimit(images,
+        parseInt(process.env.ASYNC_LIMIT_GUEST), asyncify(url => {
+            const req = downloadStream(url);
+            return axiosDownloadFile(
+                req, path.join(process.env.COVER_DIR, encodeURIComponent(url)),
+                e => { console.warn(e.config.url, 'cover download failed.'); }
+            );
+        }));
 }
