@@ -11,7 +11,9 @@ const rand = () => Math.random().toString();
 export const encryptPass =
     (pass: string) => $737().CryptoStr(pass);
 
-export const getAppToken = $382().getAppToken;
+export const getAppToken = (op: {
+    deviceId?: string, date?: Date
+} = {}) => $382(op.deviceId).getAppToken(op.date);
 
 export const randomDeviceId = (_?: string) =>
     _ ? md5(_) : md5(rand(), `nnm.kawaii_${rand()}_+/!@%^$$&**`);
