@@ -1,6 +1,6 @@
 {
   "name": "@kohaku/yidm-v3",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Some key functions used by Yidm Android APP.",
   "main": "src/index.ts",
   "typings": "build/index.d.ts",
