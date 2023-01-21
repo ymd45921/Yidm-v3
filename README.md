@@ -9,3 +9,5 @@ While in theory you could inject your own JS code and debug it dynamically, this
 Install this package by `yarn add @kohaku/yidm-v3` and use it to construct params in request sent to yidm.
 
 It is now possible to construct device id randomly from strings.
+
+Support `commonjs`, some issue still in `module`.

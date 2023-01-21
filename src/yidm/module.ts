@@ -158,8 +158,10 @@ export const $383 = () => {
     }
 }
 
+import $388 from './388.js';
+
 export const $382 = (deviceId = '4a7dfc007829226d899926431c17ed2e') => {
-    const ig = $383(), p_default = $384(), f_default = require('./388.js');
+    const ig = $383(), p_default = $384(), f_default = $388;
     const getRNAppToken = () => ig.generateToken(deviceId);
     const getAppToken = (date?: Date) => {
         return f_default(deviceId, p_default, date) as string;
