@@ -1,3 +1,4 @@
+import {createHash} from "crypto";
 
 export const $385 = () => {
     const u = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -148,19 +149,22 @@ export const $737 = () => {
 export const $383 = () => {
     // TODO: Call Java native function `YidmToken.todayAppToken`
     return {
-        generateToken: (deviceId: string): string =>
-            '0123456789abcdef0123456789abcdef'
+        generateToken: (deviceId: string): string => {
+            const hash = createHash('md5');
+            const fake = hash.update(deviceId + (new Date).getTime() + 'yidmcom!@%^$$&**');
+            console.warn('Call Java native function `YidmToken.todayAppToken`!');
+            return `${deviceId}.${fake}`;
+        }
     }
 }
 
-export const $382 = () => {
+export const $382 = (deviceId = '4a7dfc007829226d899926431c17ed2e') => {
     const ig = $383(), p_default = $384(), f_default = require('./388.js');
-    let DEVICEID = '4a7dfc007829226d899926431c17ed2e';
-    const getRNAppToken = () => ig.generateToken(DEVICEID);
+    const getRNAppToken = () => ig.generateToken(deviceId);
     const getAppToken = (date?: Date) => {
-        return f_default(DEVICEID, p_default, date)
+        return f_default(deviceId, p_default, date) as string;
     }
     return {
-        DEVICEID, getAppToken, getRNAppToken
+        DEVICEID: deviceId, getAppToken, getRNAppToken
     }
 }
