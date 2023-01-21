@@ -1,23 +1,38 @@
 {
   "name": "@kohaku/yidm-v3",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Some key functions used by Yidm Android APP.",
-  "main": "src/index.ts",
-  "typings": "build/index.d.ts",
+  "main": "build/cjs/index.js",
+  "types": "build/cjs/index.d.ts",
   "author": {
     "name": "Nanami"
   },
   "files": [
     "build"
   ],
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./build/esm/types/index.d.ts",
+        "default": "./build/esm/index.mjs"
+      },
+      "require": {
+        "types": "./build/cjs/types/index.d.ts",
+        "default": "./build/cjs/index.js"
+      }
+    }
+  },
   "license": "MIT",
   "scripts": {
     "start": "node --require ts-node/register src/index.ts",
-    "build": "rimraf ./build && tsc -d --outDir build",
+    "build": "rimraf ./build && yarn build:esm && yarn build:cjs",
+    "build:cjs": "rimraf ./build/cjs && tsc -p ./config/tsconfig.cjs.json",
+    "build:esm": "rimraf ./build/mjs && tsc -p ./config/tsconfig.esm.json",
+    "build:script": "rimraf ./tmp/script && tsc script/index.ts -m commonjs --outDir ./tmp/script",
+    "start:script": "yarn build:script && node ./tmp/script/index.js",
     "prepublish": "yarn build",
-    "postbuild": "node script/after.js",
+    "postbuild": "node script/after.js && yarn start:script",
     "test": "node script/test.js",
-    "pretest": "yarn build",
     "upload": "yarn publish --access public"
   },
   "devDependencies": {
