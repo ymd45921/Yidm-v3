@@ -89,9 +89,9 @@ export const verifyAllStoredToken = async (cache: object) => {
     return table;
 }
 
-export const initializeTokenCache = async () => {
+export const initializeTokenCache = async (renew = false) => {
     const [ids] = getEnv();
-    let cache = unsafeLoadTokenCache();
+    let cache = renew ? {} : unsafeLoadTokenCache();
     let table = await verifyAllStoredToken(cache);
     for (let {uname, pass} of ids) {
         let uid, name, token;
@@ -224,4 +224,15 @@ export interface IFileHash {
        epub: string;
     },
     _id: number;
+}
+
+export const calcFileHash = (
+    file: string
+) => {
+    const stream = fs.createReadStream(file);
+    const hash = crypto.createHash('md5');
+    let md5 = '';
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => (md5 = hash.digest('hex')));
+    return streamFinished(stream).then(() => md5);
 }

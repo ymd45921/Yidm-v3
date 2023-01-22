@@ -7,7 +7,7 @@ import {
     loadJSON, loadTaskFromLog,
     saveJSON,
     unsafeLoadTokenCache,
-    userTableToArray, IFileHash
+    userTableToArray, IFileHash, volumeEpubName, calcFileHash
 } from "./util";
 import {getVolumeEpubAndCalcHash, setAxiosRetry} from "./api";
 import {crawlBookEpub, crawlBookFileHash, crawlBookInfo, crawlBookList} from "./scripts";
@@ -22,7 +22,8 @@ const main = async () => {
 
     /// Step 1. Login accounts and make token cache.
     ///=============================================================================
-    const userTable = await initializeTokenCache();
+    const userTable = await initializeTokenCache(true);
+    // const userTable = await initializeTokenCache(false);    // TODO: Issue when uname is email.
     // const userTable = unsafeLoadTokenCache();
     const users = userTableToArray(userTable);
     // console.log(users);
@@ -59,8 +60,23 @@ const main = async () => {
 
     /// Step 6. Load file info and try to download epub.
     ///=============================================================================
-    // const fileHash = loadJSON(process.env.FILEINFO_DIR) as IFileHash[];
-    // await crawlBookEpub(users, fileHash, true);
+    const fileHash = loadJSON(process.env.FILEINFO_DIR) as IFileHash[];
+    const taskList = await async.filterLimit(
+        fileHash, parseInt(process.env.ASYNC_LIMIT_LOCAL), asyncify(
+            async (task: IFileHash) => {
+                const { aid, vid } = task, ans = task.md5.epub;
+                const fileDir = path.join(process.env.DOWNLOAD_DIR,
+                    volumeEpubName(aid.toString(), vid.toString()));
+                if (fs.existsSync(fileDir)) {
+                    const md5 = await calcFileHash(fileDir);
+                    return !(md5 === ans);
+                } else return true;
+            }
+        ));
+    saveJSON('tmp/taskList.json', taskList);
+    // const taskList = (loadJSON('tmp/taskList.json') as IFileHash[]).reverse();
+    console.log(`[INFO] Still ${taskList.length}/${fileHash.length} epub need to download.`);
+    // await crawlBookEpub(users, taskList, true);
 
 
     debugger;

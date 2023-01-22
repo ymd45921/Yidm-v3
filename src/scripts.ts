@@ -1,4 +1,4 @@
-import {CachedUser, DownloadTask, IFileHash} from "./util";
+import {CachedUser, calcFileHash, DownloadTask, IFileHash, volumeEpubName} from "./util";
 import * as async from "async";
 import {getBookInfoGuest, getList, getVolumeEpubAndCalcHash, getVolumeEpubMD5} from "./api";
 import * as fs from "fs";
@@ -108,22 +108,31 @@ export const crawlBookEpub = async (
 ) => {
     const n = users.length;
     try {
-        let cnt = 0;
         await async.forEachLimit(tasks,
             parseInt(process.env.ASYNC_LIMIT),
             asyncify(async (task: IFileHash) => {
                 const { aid, vid, _id } = task, ans = task.md5.epub;
+                const fileDir = path.join(process.env.DOWNLOAD_DIR,
+                    volumeEpubName(aid.toString(), vid.toString()));
+                if (fs.existsSync(fileDir)) {
+                    const md5 = await calcFileHash(fileDir);
+                    if (md5 === ans) {
+                        console.log(`[SKIP] Book epub \t\t${_id} exist and md5 checked: \taid = ${aid}, vid = ${vid}`);
+                        return;
+                    } else console.warn(`[EPUB] Book epub \t${_id} exist but md5 not match, re-download.`);
+                }
                 let ok = false;
-                for (let time = 3; time--; ) {
+                for (let time = parseInt(process.env.RETRY_HASHERROR); time--; ) {
+                    const user = users[Math.floor(Math.random() * n * 45921) % n];
                     const md5 = await getVolumeEpubAndCalcHash(
                         aid.toString(), vid.toString(), process.env.DOWNLOAD_DIR,
-                        users[_id % n].token, users[_id % n].appToken,
+                        user.token, user.appToken,
                         balancing ? (_id & 1 ? 0 : 1) : 0,
                         e => console.warn(`${e.config.url} download failed.`)
                     );
                     // noinspection JSAssignmentUsedAsCondition
                     if (ok = (md5 === ans)) break;
-                    else console.warn(`Epub ID ${_id} md5 not matches, ${time} retry remaining...`);
+                    else console.warn(`[MD5ERROR] Epub ID ${_id} md5 not matches, ${time} retry remaining...`);
                 }
                 if (!ok) console.warn(`[EPUB] Book ${aid} volume ${vid} download failed with md5 not matching.`);
                 else console.log(`[EPUB] Download book \t\t${_id}: \taid = ${aid}, vid = ${vid}`);
