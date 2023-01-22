@@ -7,6 +7,7 @@ import {promisify} from "util";
 import * as stream from "stream";
 import * as async from "async";
 import {asyncify} from "async";
+import * as crypto from "crypto";
 
 export const configEnv = () => require('dotenv').config();
 
@@ -40,6 +41,19 @@ export class CachedUser {
     get appToken() {
         return yidm.getAppToken({deviceId: this.deviceId});
     }
+}
+
+export const retry = (times: number, fn: Function) => {
+    fn().catch(err => times > 1 ? retry(times - 1, fn) : Promise.reject(err));
+}
+
+export const pause = (during: number) => new Promise(resolve => setTimeout(resolve, during));
+
+export const delayRetry = (
+    times: number, fn: Function, delay = 1000) => {
+    fn().catch(err => times > 1 ?
+        pause(delay).then(() => delayRetry(times - 1, fn, delay)) :
+        Promise.reject(err));
 }
 
 export const storeTokenCache = table =>
@@ -79,7 +93,7 @@ export const initializeTokenCache = async () => {
     const [ids] = getEnv();
     let cache = unsafeLoadTokenCache();
     let table = await verifyAllStoredToken(cache);
-    for (const {uname, pass} of ids) {
+    for (let {uname, pass} of ids) {
         let uid, name, token;
         const deviceId = yidm.randomDeviceId();
         if (!!table[uname]) continue;
@@ -89,6 +103,7 @@ export const initializeTokenCache = async () => {
             uid = resp.uid;
             name = resp.name;
             token = resp.token;
+            uname = resp.uname;
         } else continue;
         table[uname] = { uname, pass, uid, name, deviceId, token }
     }
@@ -118,6 +133,23 @@ export const axiosDownloadFile = async (
     return axiosStream.then(res => {
         res.data.pipe(io);
         return streamFinished(io);
+    }).catch(onRejected);
+}
+
+export const axiosDownloadFileAndCalcHash = async (
+    axiosStream: Promise<AxiosResponse<any, any>>,
+    path: string,
+    onRejected?: (reason: any) => (void | PromiseLike<void>)
+) => {
+    const io = fs.createWriteStream(path);
+    const hash = crypto.createHash('md5');
+    let md5 = '';
+    return axiosStream.then(res => {
+        // console.log(res.headers);    // contains content-disposition and content-type
+        res.data.pipe(io);
+        res.data.on('data', chunk => hash.update(chunk));
+        res.data.on('end', () => (md5 = hash.digest('hex')));
+        return streamFinished(io).then(() => md5);
     }).catch(onRejected);
 }
 
@@ -173,13 +205,23 @@ export const loadTaskFromLog = (path = 'tmp/input.log') => {
     return downloadTasks;
 }
 
-export const downloadImage = (images: string[]) => {
-    return async.forEachLimit(images,
+export const downloadURLs = (
+    urls: string[], naming = (url: string) => encodeURIComponent(url)) => {
+    return async.forEachLimit(urls,
         parseInt(process.env.ASYNC_LIMIT_GUEST), asyncify(url => {
             const req = downloadStream(url);
             return axiosDownloadFile(
-                req, path.join(process.env.COVER_DIR, encodeURIComponent(url)),
-                e => { console.warn(e.config.url, 'cover download failed.'); }
+                req, path.join(process.env.COVER_DIR, naming(url)),
+                e => { console.warn(e.config.url, 'download failed.'); }
             );
         }));
+}
+
+export interface IFileHash {
+    aid: number;
+    vid: number;
+    md5: {
+       epub: string;
+    },
+    _id: number;
 }

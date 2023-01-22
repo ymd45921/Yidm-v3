@@ -1,6 +1,7 @@
 import axios from "axios";
+import axiosRetry, {IAxiosRetryConfig} from "axios-retry";
 import * as yidm from '@kohaku/yidm-v3';
-import {axiosDownloadFile, volumeEpubName} from "./util";
+import {axiosDownloadFile, axiosDownloadFileAndCalcHash, volumeEpubName} from "./util";
 import * as path from "path";
 
 const v3ua = 'RN(0.52.0) Yidmos Yidm(V3) Android';
@@ -8,7 +9,7 @@ const v3ua = 'RN(0.52.0) Yidmos Yidm(V3) Android';
 const randomAppToken = () =>
     yidm.getAppToken({deviceId: yidm.randomDeviceId()});
 
-export const source = axios.create({
+const source = axios.create({
     baseURL: 'https://source.yidm.com',
     timeout: parseInt(process.env.API_TIMEOUT),
     headers: {
@@ -19,7 +20,7 @@ export const source = axios.create({
     }
 })
 
-export const dl = axios.create({
+const dl = axios.create({
     baseURL: 'https://down.yidm.com',
     timeout: parseInt(process.env.API_TIMEOUT),
     headers: {
@@ -28,7 +29,7 @@ export const dl = axios.create({
     }
 })
 
-export const dl2 = axios.create({
+const dl2 = axios.create({
     baseURL: 'https://down2.yidm.com',
     timeout: parseInt(process.env.API_TIMEOUT),
     headers: {
@@ -36,6 +37,28 @@ export const dl2 = axios.create({
         'Accept-Encoding': 'gzip'
     }
 })
+
+export const setAxiosRetry = () => {
+    axiosRetry(source, {
+        retries: parseInt(process.env.RETRY_MAXTIME),
+        retryDelay: () => parseInt(process.env.RETRY_DELAY),
+        onRetry: (cnt, e, req) => {
+            console.warn(`[RETRY] ${req.url} failed, retrying ${cnt}: ${e.message}`);
+        }
+    });
+    const dlRetryConfig: IAxiosRetryConfig = {
+        retries: parseInt(process.env.RETRY_MAXTIME),
+        retryDelay: () => parseInt(process.env.RETRY_DELAY),
+        retryCondition: () => true,
+        onRetry: (cnt, e, req) => {
+            const {aid, vid, isCreate} = req.params;
+            const t = isCreate ? 'Get epub MD5' : 'Get epub file';
+            console.warn(`[RETRY] ${t} failed at book ${aid} volume ${vid} because: ${e.message}`);
+        }
+    };
+    axiosRetry(dl, dlRetryConfig);
+    axiosRetry(dl2, dlRetryConfig);
+};
 
 export const getListGuest = async (
     page: number, pageSize: number | 'android' | 'pc'
@@ -92,11 +115,11 @@ export const login = async (
     if (resp.data.status)
         console.assert(resp.data.token === resp.data.info?.token,
             'Tokens are different in user info and response body.');
-    let {token, uid, name} = resp.data.info ?? {};
+    let {token, uid, name, uname} = resp.data.info ?? {};
     return {
         status: resp.data.status,
         msg: resp.data.msg,
-        token, uid, name
+        token, uid, name, uname
     };
 }
 
@@ -146,7 +169,8 @@ export const getVolumeEpubMD5 = async (
 
 export const getVolumeEpub = async (
     aid: string, vid: string, dir: string,
-    token: string, appToken?: string, route: 0 | 1 = 0
+    token: string, appToken?: string, route: 0 | 1 = 0,
+    onRejected?: (reason: any) => (void | PromiseLike<void>)
 ) => {
     appToken ??= randomAppToken();
     const promise = (route ? dl : dl2).get('/downVolumeEpub.php', {
@@ -156,5 +180,21 @@ export const getVolumeEpub = async (
     });
     if (path.extname(dir) === '')
         dir = path.join(dir, volumeEpubName(aid, vid));
-    return axiosDownloadFile(promise, dir);
+    return axiosDownloadFile(promise, dir, onRejected);
+}
+
+export const getVolumeEpubAndCalcHash = async (
+    aid: string, vid: string, dir: string,
+    token: string, appToken?: string, route: 0 | 1 = 0,
+    onRejected?: (reason: any) => (void | PromiseLike<void>)
+) => {
+    appToken ??= randomAppToken();
+    if (path.extname(dir) === '')
+        dir = path.join(dir, volumeEpubName(aid, vid));
+    return axiosDownloadFileAndCalcHash(
+            (route ? dl : dl2).get('/downVolumeEpub.php', {
+            params: { aid, vid, token, appToken },
+            headers: { appToken },
+            responseType: "stream"
+        }), dir, onRejected);
 }

@@ -1,6 +1,6 @@
-import {CachedUser, DownloadTask} from "./util";
+import {CachedUser, DownloadTask, IFileHash} from "./util";
 import * as async from "async";
-import {getBookInfoGuest, getList, getVolumeEpubMD5} from "./api";
+import {getBookInfoGuest, getList, getVolumeEpubAndCalcHash, getVolumeEpubMD5} from "./api";
 import * as fs from "fs";
 import * as path from "path";
 import {asyncify} from "async";
@@ -99,4 +99,36 @@ export const crawlBookFileHash = async (
         }
     }
     return listWithMd5;
+}
+
+export const crawlBookEpub = async (
+    users: CachedUser[],
+    tasks: IFileHash[],
+    balancing = false
+) => {
+    const n = users.length;
+    try {
+        let cnt = 0;
+        await async.forEachLimit(tasks,
+            parseInt(process.env.ASYNC_LIMIT),
+            asyncify(async (task: IFileHash) => {
+                const { aid, vid, _id } = task, ans = task.md5.epub;
+                let ok = false;
+                for (let time = 3; time--; ) {
+                    const md5 = await getVolumeEpubAndCalcHash(
+                        aid.toString(), vid.toString(), process.env.DOWNLOAD_DIR,
+                        users[_id % n].token, users[_id % n].appToken,
+                        balancing ? (_id & 1 ? 0 : 1) : 0,
+                        e => console.warn(`${e.config.url} download failed.`)
+                    );
+                    // noinspection JSAssignmentUsedAsCondition
+                    if (ok = (md5 === ans)) break;
+                    else console.warn(`Epub ID ${_id} md5 not matches, ${time} retry remaining...`);
+                }
+                if (!ok) console.warn(`[EPUB] Book ${aid} volume ${vid} download failed with md5 not matching.`);
+                else console.log(`[EPUB] Download book \t\t${_id}: \taid = ${aid}, vid = ${vid}`);
+            }));
+    } catch (e) {
+        console.error(e)
+    }
 }
