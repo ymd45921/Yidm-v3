@@ -217,9 +217,8 @@ export const downloadURLs = (
         }));
 }
 
-export interface IFileHash {
-    aid: number;
-    vid: number;
+export interface IFileHash
+    extends DownloadTask{
     md5: {
        epub: string;
     },
@@ -236,3 +235,8 @@ export const calcFileHash = (
     stream.on('end', () => (md5 = hash.digest('hex')));
     return streamFinished(stream).then(() => md5);
 }
+
+export const randomSelectUser = (
+    users: CachedUser[]
+) => users[
+    Math.floor(Math.random() * users.length * 45921) % users.length];

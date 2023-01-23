@@ -1,9 +1,10 @@
-import {CachedUser, calcFileHash, DownloadTask, IFileHash, volumeEpubName} from "./util";
+import {CachedUser, calcFileHash, DownloadTask, IFileHash, randomSelectUser, volumeEpubName} from "./util";
 import * as async from "async";
 import {getBookInfoGuest, getList, getVolumeEpubAndCalcHash, getVolumeEpubMD5} from "./api";
 import * as fs from "fs";
 import * as path from "path";
 import {asyncify} from "async";
+import {getEPUBFiles, getEPUBFileHash} from "./batch";
 
 export const crawlBookList = async (
     user: CachedUser,
@@ -71,22 +72,9 @@ export const crawlBookFileHash = async (
     balancing = false,
     pretty = false
 ) => {
-    let listWithMd5, n = users.length;
+    let listWithMd5;
     try {
-        listWithMd5 = await async.mapLimit(taskList,
-            parseInt(process.env.ASYNC_LIMIT), asyncify(async (task: DownloadTask) => {
-                const { aid, vid } = task;
-                const _id = vid * 10000 + aid;  // "aid": \d\d\d\d\d matches nothing.
-                const resp = await getVolumeEpubMD5(
-                    aid, vid, users[_id % n].token, users[_id % n].appToken,
-                    balancing ? (_id & 1 ? 0 : 1) : 0
-                );
-                if (!resp.status)
-                    console.warn(`Get book ${aid} volume ${vid} epub md5 failed: ${resp.msg}`);
-                else console.log(`Get book ${aid} volume ${vid} epub md5 ok.`);
-                return resp.status ? {
-                    aid, vid, md5: { epub: resp.md5 }, _id} : undefined;
-            }));
+        listWithMd5 = await getEPUBFileHash(users, taskList, balancing);
     } catch (e) {
         console.error(e);
     } finally {
@@ -106,37 +94,8 @@ export const crawlBookEpub = async (
     tasks: IFileHash[],
     balancing = false
 ) => {
-    const n = users.length;
     try {
-        await async.forEachLimit(tasks,
-            parseInt(process.env.ASYNC_LIMIT),
-            asyncify(async (task: IFileHash) => {
-                const { aid, vid, _id } = task, ans = task.md5.epub;
-                const fileDir = path.join(process.env.DOWNLOAD_DIR,
-                    volumeEpubName(aid.toString(), vid.toString()));
-                if (fs.existsSync(fileDir)) {
-                    const md5 = await calcFileHash(fileDir);
-                    if (md5 === ans) {
-                        console.log(`[SKIP] Book epub \t\t${_id} exist and md5 checked: \taid = ${aid}, vid = ${vid}`);
-                        return;
-                    } else console.warn(`[EPUB] Book epub \t${_id} exist but md5 not match, re-download.`);
-                }
-                let ok = false;
-                for (let time = parseInt(process.env.RETRY_HASHERROR); time--; ) {
-                    const user = users[Math.floor(Math.random() * n * 45921) % n];
-                    const md5 = await getVolumeEpubAndCalcHash(
-                        aid.toString(), vid.toString(), process.env.DOWNLOAD_DIR,
-                        user.token, user.appToken,
-                        balancing ? (_id & 1 ? 0 : 1) : 0,
-                        e => console.warn(`${e.config.url} download failed.`)
-                    );
-                    // noinspection JSAssignmentUsedAsCondition
-                    if (ok = (md5 === ans)) break;
-                    else console.warn(`[MD5ERROR] Epub ID ${_id} md5 not matches, ${time} retry remaining...`);
-                }
-                if (!ok) console.warn(`[EPUB] Book ${aid} volume ${vid} download failed with md5 not matching.`);
-                else console.log(`[EPUB] Download book \t\t${_id}: \taid = ${aid}, vid = ${vid}`);
-            }));
+        await getEPUBFiles(users, tasks, balancing);
     } catch (e) {
         console.error(e)
     }
